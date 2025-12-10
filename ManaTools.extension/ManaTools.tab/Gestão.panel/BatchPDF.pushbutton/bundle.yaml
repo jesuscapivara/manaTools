@@ -1,5 +1,8 @@
 # Metadados do botão BatchPDF
-name: BatchPDF
-tooltip: Exporta PDFs de pranchas selecionadas com nomenclatura sanitizada
-help_url: https://github.com/manaTools/docs
-description: Exporta múltiplas pranchas em PDF com nomes sanitizados (sem acentos, espaços ou caracteres especiais)
+title: Exportar
+  PDFs
+tooltip: Exporta pranchas em lote (Maná Standard)
+# Força o uso do ícone grande se disponível
+big_image: icon.png
+author: Lucas Rossetti
+description: Exporta múltiplas pranchas em PDF com nomenclatura personalizada (NUMERO-NOME)
