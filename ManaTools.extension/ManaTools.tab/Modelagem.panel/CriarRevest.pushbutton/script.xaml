@@ -1,0 +1,42 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Maná Revestimentos" Height="500" Width="400" 
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
+    
+    <StackPanel Margin="20">
+        <TextBlock Text="CRIAR PAREDES CEBOLA" FontWeight="Bold" FontSize="16" 
+                   Margin="0,0,0,20" HorizontalAlignment="Center"/>
+
+        <Label Content="Tipo de Parede (Revestimento):" FontWeight="Bold"/>
+        <ComboBox Name="cb_wall_type" Margin="0,0,0,15" Height="25"/>
+        
+        <Label Content="Nível Base:" FontWeight="Bold"/>
+        <ComboBox Name="cb_base_level" Margin="0,0,0,5" Height="25"/>
+        
+        <Grid Margin="0,0,0,15">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="100"/>
+            </Grid.ColumnDefinitions>
+            <Label Grid.Column="0" Content="Deslocamento Base (cm):" VerticalAlignment="Center"/>
+            <TextBox Grid.Column="1" Name="tb_base_offset" Text="0" Height="25" VerticalContentAlignment="Center"/>
+        </Grid>
+        
+        <Label Content="Nível Topo:" FontWeight="Bold"/>
+        <ComboBox Name="cb_top_level" Margin="0,0,0,5" Height="25"/>
+        
+        <Grid Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="100"/>
+            </Grid.ColumnDefinitions>
+            <Label Grid.Column="0" Content="Altura Desconectada (cm):" 
+                   ToolTip="Usado apenas se Nível Topo for (Desconectado)"/>
+            <TextBox Grid.Column="1" Name="tb_height" Text="280" Height="25" VerticalContentAlignment="Center"/>
+        </Grid>
+        
+        <Button Name="btn_create" Content="GERAR REVESTIMENTO" Height="40" 
+                FontWeight="Bold" Background="#2C3E50" Foreground="White" Click="button_create_clicked"/>
+    </StackPanel>
+</Window>
+
