@@ -1,6 +1,6 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Maná Pisos" Height="450" Width="400" 
+        Title="Maná Pisos" Height="480" Width="400" 
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
     
     <StackPanel Margin="20">
@@ -13,13 +13,23 @@
         <Label Content="Nível de Referência:" FontWeight="Bold"/>
         <ComboBox Name="cb_level" Margin="0,0,0,15" Height="25"/>
         
-        <Grid Margin="0,0,0,20">
+        <Grid Margin="0,0,0,5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="100"/>
             </Grid.ColumnDefinitions>
             <Label Grid.Column="0" Content="Deslocamento Altura (cm):" VerticalAlignment="Center"/>
             <TextBox Grid.Column="1" Name="tb_offset" Text="0" Height="25" VerticalContentAlignment="Center"/>
+        </Grid>
+
+        <Grid Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="100"/>
+            </Grid.ColumnDefinitions>
+            <Label Grid.Column="0" Content="Avanço na Porta (cm):" VerticalAlignment="Center"
+                   ToolTip="Quanto o piso da porta avança para dentro das salas (Overlap)"/>
+            <TextBox Grid.Column="1" Name="tb_overlap" Text="5" Height="25" VerticalContentAlignment="Center"/>
         </Grid>
         
         <Border BorderBrush="Gray" BorderThickness="1" Padding="10" Margin="0,0,0,20" CornerRadius="5">
