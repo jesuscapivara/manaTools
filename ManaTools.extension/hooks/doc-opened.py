@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Hook executado quando um documento é aberto no Revit.
 """
@@ -13,4 +14,3 @@ def doc_opened(doc):
         doc: Documento do Revit
     """
     logger.info("Documento aberto: {}".format(doc.Title))
-

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Módulo de renomeação em massa baseado em regras da ABNT."""
 # Imports padrão do pyRevit
 from pyrevit import forms, script
@@ -25,4 +26,3 @@ with revit_utils.setup_transaction(doc, "Renomear Elementos"):
 # 3. Feedback
 logger.info("Processo finalizado. {} elementos renomeados.".format(count))
 forms.alert("{} elementos renomeados com sucesso!".format(count), title="Sucesso")
-
