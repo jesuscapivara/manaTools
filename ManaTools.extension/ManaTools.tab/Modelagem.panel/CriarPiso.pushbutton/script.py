@@ -10,10 +10,12 @@ from Autodesk.Revit.DB import BuiltInCategory, BuiltInParameter, Transaction, Sp
 from Autodesk.Revit.UI.Selection import ObjectType
 from Autodesk.Revit.Exceptions import OperationCanceledException
 from pyrevit import forms, script, revit
-from manalib import flooring, finishes
+from manalib import flooring, finishes, config_manager
 
 doc = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
+
+CMD_ID = "manatools_criarpiso"
 
 # --- HELPER: NOME SEGURO ---
 def get_name_safe(element):
@@ -43,19 +45,14 @@ def process_element(elem):
     
     cat_id = elem.Category.Id.IntegerValue
     
-    # Ambientes
     if cat_id == int(BuiltInCategory.OST_Rooms):
         if elem.Id not in seen_ids:
             final_elements.append(elem)
             seen_ids.add(elem.Id)
-            
-    # Portas (Novidade!)
     elif cat_id == int(BuiltInCategory.OST_Doors):
         if elem.Id not in seen_ids:
             final_elements.append(elem)
             seen_ids.add(elem.Id)
-
-    # Tags de Ambiente
     elif cat_id == int(BuiltInCategory.OST_RoomTags):
         if isinstance(elem, SpatialElementTag):
             room = None
@@ -66,10 +63,8 @@ def process_element(elem):
                 final_elements.append(room)
                 seen_ids.add(room.Id)
 
-# Tenta processar seleção atual
 for s in selection: process_element(s)
 
-# Se nada selecionado, pede seleção manual
 if not final_elements:
     try:
         with forms.WarningBar(title="Selecione Ambientes, Tags ou Portas (ESC para sair):"):
@@ -98,12 +93,36 @@ class FloorWindow(forms.WPFWindow):
         self.cb_floor_type.ItemsSource = dict_floors.keys()
         self.cb_level.ItemsSource = dict_levels.keys()
         
-        if dict_floors: self.cb_floor_type.SelectedIndex = 0
-        if dict_levels: self.cb_level.SelectedIndex = 0
+        # Carrega Config
+        cfg = config_manager.get_config(CMD_ID)
+        
+        self.cb_floor_type.SelectedIndex = 0
+        self.cb_level.SelectedIndex = 0
+        
+        if getattr(cfg, "last_floor_type", None):
+            if cfg.last_floor_type in dict_floors:
+                self.cb_floor_type.SelectedItem = cfg.last_floor_type
+                
+        if getattr(cfg, "last_level", None):
+            if cfg.last_level in dict_levels:
+                self.cb_level.SelectedItem = cfg.last_level
+                
+        self.tb_offset.Text = getattr(cfg, "last_offset", "0")
+        self.tb_overlap.Text = getattr(cfg, "last_overlap", "5")
+        self.chk_merge.IsChecked = getattr(cfg, "last_merge", False)
         
         self.run_script = False
 
     def button_create_clicked(self, sender, args):
+        # Salva Config
+        config_manager.save_config(CMD_ID, {
+            "last_floor_type": self.cb_floor_type.SelectedItem,
+            "last_level": self.cb_level.SelectedItem,
+            "last_offset": self.tb_offset.Text,
+            "last_overlap": self.tb_overlap.Text,
+            "last_merge": self.chk_merge.IsChecked
+        })
+        
         self.run_script = True
         self.Close()
 
@@ -123,7 +142,7 @@ is_merge = win.chk_merge.IsChecked
 
 try:
     val_offset = float(win.tb_offset.Text) / 30.48
-    val_overlap = float(win.tb_overlap.Text) / 30.48 # CM -> Feet
+    val_overlap = float(win.tb_overlap.Text) / 30.48
 except:
     forms.alert("Valores numéricos inválidos.", exitscript=True)
 
@@ -135,7 +154,7 @@ with revit.Transaction("Criar Pisos Maná"):
         final_elements, 
         sel_floor, 
         sel_level, 
-        val_offset,
+        val_offset, 
         door_overlap=val_overlap,
         merge_all=is_merge
     )
