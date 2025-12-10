@@ -1,0 +1,8 @@
+{
+  "type": "extension",
+  "name": "ManaTools",
+  "description": "Suite de ferramentas de alta performance para a Maná Engenharia.",
+  "author": "Lucas Rossetti",
+  "dependencies": []
+}
+

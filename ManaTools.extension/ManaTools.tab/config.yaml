@@ -1,0 +1,7 @@
+# Configuração da Aba ManaTools
+name: ManaTools
+title: ManaTools
+order: 0
+background: "#2C3E50"
+foreground: "#ECF0F1"
+
