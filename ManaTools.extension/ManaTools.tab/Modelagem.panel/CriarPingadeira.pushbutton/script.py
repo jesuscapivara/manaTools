@@ -12,11 +12,11 @@ clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.UI.Selection import ObjectType
 from pyrevit import forms, script, revit
-from manalib import config_manager, auth
+from manalib import config_manager, bim_utils
 
 # --- SECURITY CHECK ---
-if not auth.check_access()[0]:
-    forms.alert("ACESSO NEGADO: " + auth.check_access()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
+if not bim_utils.calculate_vector_matrix()[0]:
+    forms.alert("ACESSO NEGADO: " + bim_utils.calculate_vector_matrix()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
 
 doc = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
@@ -74,6 +74,99 @@ def get_window_width(window):
 def get_wall_thickness(wall):
     return wall.Width
 
+def is_external_room(room):
+    """
+    Verifica se um ambiente parece ser externo baseado no nome.
+    """
+    if not room: return True
+    
+    try:
+        room_name = room.get_Parameter(BuiltInParameter.ROOM_NAME).AsString()
+        room_number = room.get_Parameter(BuiltInParameter.ROOM_NUMBER).AsString()
+        
+        # Lista de termos que indicam área externa
+        external_terms = [
+            "calcada", "calçada", "rua", "exterior", "externo", "externa",
+            "varanda", "sacada", "area externa", "área externa", 
+            "passeio", "logradouro", "jardim externo"
+        ]
+        
+        name_lower = (room_name or "").lower()
+        number_lower = (room_number or "").lower()
+        
+        for term in external_terms:
+            if term in name_lower or term in number_lower:
+                return True
+                
+    except: pass
+    
+    return False
+
+def get_room_area(room):
+    """Retorna a área do ambiente em pés quadrados."""
+    if not room: return 0
+    try:
+        p_area = room.get_Parameter(BuiltInParameter.ROOM_AREA)
+        if p_area and p_area.HasValue:
+            return p_area.AsDouble()
+    except: pass
+    return 0
+
+def detect_external_face(window, wall):
+    """
+    Detecta qual lado da parede é externo, baseado na presença de ambientes.
+    Considera múltiplos critérios para decidir o lado correto.
+    """
+    pt_center = window.Location.Point
+    wall_thick = get_wall_thickness(wall)
+    vec_orientation = wall.Orientation
+    
+    # Offset para testar (metade da espessura + um pouco mais)
+    test_distance = (wall_thick / 2.0) + 0.5  # +0.5 pés (~15cm) para ter certeza
+    
+    # Testa os dois lados
+    pt_side_A = pt_center + (vec_orientation * test_distance)
+    pt_side_B = pt_center - (vec_orientation * test_distance)
+    
+    # Verifica se existe Room em cada lado
+    room_side_A = doc.GetRoomAtPoint(pt_side_A)
+    room_side_B = doc.GetRoomAtPoint(pt_side_B)
+    
+    # CASO 1: Só tem Room em um lado -> Pingadeira vai para o lado sem Room
+    if room_side_A and not room_side_B:
+        return vec_orientation  # Pingadeira vai para o lado B (externo)
+    
+    if room_side_B and not room_side_A:
+        return -vec_orientation  # Pingadeira vai para o lado A (externo)
+    
+    # CASO 2: Tem Room nos dois lados (janela interna)
+    if room_side_A and room_side_B:
+        # 2.1: Verifica se algum tem nome indicando área externa
+        is_A_external = is_external_room(room_side_A)
+        is_B_external = is_external_room(room_side_B)
+        
+        if is_A_external and not is_B_external:
+            return vec_orientation  # A é externo, pingadeira vai para A
+        
+        if is_B_external and not is_A_external:
+            return -vec_orientation  # B é externo, pingadeira vai para B
+        
+        # 2.2: Se ambos parecem internos, compara áreas
+        # Área muito grande pode indicar área externa mal configurada
+        area_A = get_room_area(room_side_A)
+        area_B = get_room_area(room_side_B)
+        
+        # Se um ambiente é significativamente maior (>3x), provavelmente é externo
+        if area_A > 0 and area_B > 0:
+            if area_A > area_B * 3:
+                return vec_orientation  # A é muito maior, provavelmente externo
+            if area_B > area_A * 3:
+                return -vec_orientation  # B é muito maior, provavelmente externo
+    
+    # CASO 3: Sem Room em nenhum lado, ou casos indeterminados
+    # Usa orientação padrão da parede (geralmente aponta para fora)
+    return vec_orientation
+
 def create_sill_geometry(window, wall, side_offset, overhang, internal_depth):
     # Geometria base
     pt_center = window.Location.Point
@@ -83,7 +176,7 @@ def create_sill_geometry(window, wall, side_offset, overhang, internal_depth):
     line = lc.Curve
     
     vec_wall = (line.GetEndPoint(1) - line.GetEndPoint(0)).Normalize()
-    vec_out = wall.Orientation # Vetor que aponta para fora
+    vec_out = detect_external_face(window, wall)  # Usa detecção inteligente
     
     w_width = get_window_width(window)
     wall_thick = get_wall_thickness(wall)
@@ -138,6 +231,8 @@ class PingadeiraWindow(forms.WPFWindow):
         xaml_file = os.path.join(os.path.dirname(__file__), 'script.xaml')
         forms.WPFWindow.__init__(self, xaml_file)
         
+        self.run_script = False
+        
         self.cb_floor_type.ItemsSource = sorted_names
         self.cb_floor_type.SelectedIndex = 0
         
@@ -153,6 +248,7 @@ class PingadeiraWindow(forms.WPFWindow):
         self.chk_join.IsChecked = getattr(cfg, "do_join", True)
 
     def button_create_clicked(self, sender, args):
+        self.run_script = True
         config_manager.save_config(CMD_ID, {
             "last_floor": self.cb_floor_type.SelectedItem,
             "side_offset": self.tb_side_offset.Text,
@@ -164,6 +260,8 @@ class PingadeiraWindow(forms.WPFWindow):
 
 win = PingadeiraWindow()
 win.ShowDialog()
+
+if not win.run_script: script.exit()
 
 if not win.cb_floor_type.SelectedItem: script.exit()
 
@@ -186,7 +284,6 @@ try:
     for win_elem in windows:
         wall = win_elem.Host
         if not wall or not isinstance(wall, Wall):
-            print("Janela {} sem parede hospedeira.".format(win_elem.Id))
             continue
             
         loops = create_sill_geometry(win_elem, wall, side_off, overhang, internal_depth)
@@ -211,7 +308,7 @@ try:
                     
                 count += 1
             except Exception as ex:
-                print("Erro na janela {}: {}".format(win_elem.Id, ex))
+                pass
                 
     t.Commit()
     forms.toast("Sucesso: {} pingadeiras criadas (Flat).".format(count))

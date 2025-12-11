@@ -128,9 +128,8 @@ with forms.ProgressBar(title='Exportando...', cancellable=True) as pb:
                 doc.Export(dest_folder, ids, options)
                 
                 count_success += 1
-                print("Gerado: " + filename)  # Debug
-                
-            except Exception as e: logger.error("Erro {}: {}".format(sheet.Id, e))
+
+            except Exception as e: pass
             pb.update_progress(i+1, len(valid_sheets))
             
         if count_success > 0:

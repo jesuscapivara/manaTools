@@ -64,11 +64,7 @@ def rename_marks(category_name, types_list, prefix):
             # Só muda se for diferente para evitar processamento inútil
             if current != new_mark:
                 p_mark.Set(new_mark)
-                print("✅ {} -> {} ({} un.)".format(el_type.FamilyName, new_mark, "??")) 
-                # Nota: Para performance, não recutamos a contagem aqui no print
                 count += 1
-        else:
-            print("⚠️ Travado: " + el_type.FamilyName)
 
     return count
 
@@ -83,29 +79,21 @@ with revit.Transaction("Renomear Marcas de Tipo"):
     
     # >> PORTAS
     if res in ["Portas (P1, P2...)", "Ambas"]:
-        print("--- PROCESSANDO PORTAS ---")
         sorted_doors = get_types_sorted_by_count(BuiltInCategory.OST_Doors)
-        
+
         if sorted_doors:
             # Passada de Limpeza (Opcional, mas evita aviso de duplicidade do Revit)
-            # Renomeia tudo para um GUID temporário antes? 
+            # Renomeia tudo para um GUID temporário antes?
             # R: O Revit aceita duplicata em Mark com aviso. Vamos direto para simplicidade.
-            
+
             count = rename_marks("Portas", sorted_doors, "P")
-            print("Total Portas Renomeadas: {}".format(count))
-        else:
-            print("Nenhuma porta encontrada.")
             
     # >> JANELAS
     if res in ["Janelas (J1, J2...)", "Ambas"]:
-        print("\n--- PROCESSANDO JANELAS ---")
         sorted_windows = get_types_sorted_by_count(BuiltInCategory.OST_Windows)
-        
+
         if sorted_windows:
             count = rename_marks("Janelas", sorted_windows, "J")
-            print("Total Janelas Renomeadas: {}".format(count))
-        else:
-            print("Nenhuma janela encontrada.")
 
 forms.alert("Processo Finalizado! Confira o console.", title="Maná Type Marks")
 

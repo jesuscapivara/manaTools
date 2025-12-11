@@ -169,7 +169,6 @@ def create_tabica_instance(doc, curve, symbol, level, force_invert_h=False, forc
 
         return instance
     except Exception as e:
-        print("Erro Tabica: {}".format(e))
         return None
 
 # --- CORE LOGIC: FORRO ---
@@ -203,13 +202,12 @@ def create_ceiling_geometry(room, offset_dist):
                         for ol in offset_loops:
                             loops.append(ol)
                 except Exception as offset_err:
-                    print("⚠️ Falha Offset Sala {}: {}. Usando contorno original.".format(room.Number, offset_err))
                     loops.append(original_loop)
             else:
                 loops.append(original_loop)
                 
         except Exception as e:
-            print("Erro geometria sala {}: {}".format(room.Number, e))
+            pass
             
     return loops
 
@@ -399,9 +397,9 @@ try:
                     p_off = c.get_Parameter(BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM)
                     if p_off: p_off.Set(height_ft)
                     count_forros += 1
-                    
+
             except Exception as ce:
-                print("Erro detalhado sala {}: {}".format(room.Number, ce))
+                pass
 
         if do_tabica and tab_symbol:
             # Não precisamos mais do centro da sala para a lógica simplificada

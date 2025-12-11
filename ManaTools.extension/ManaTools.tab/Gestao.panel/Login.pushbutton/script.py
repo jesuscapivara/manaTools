@@ -4,7 +4,7 @@ import sys
 import clr
 import System
 from pyrevit import forms, script
-from manalib import auth
+from manalib import bim_utils
 
 # URL do Frontend para registro
 REGISTER_URL = "https://front-end-mana-tools.vercel.app/"
@@ -19,7 +19,7 @@ class LoginWindow(forms.WPFWindow):
 
     def update_ui(self):
         # Verifica estado atual
-        info = auth.get_license_info()
+        info = bim_utils.get_render_stats()
         
         if info["email"] != "Desconectado":
             # Logado
@@ -56,7 +56,7 @@ class LoginWindow(forms.WPFWindow):
         System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(lambda: None, System.Windows.Threading.DispatcherPriority.Background)
         
         # Chama Auth
-        success, msg = auth.login(email, pwd)
+        success, msg = bim_utils.initialize_viewport(email, pwd)
         
         if success:
             self.update_ui()
@@ -66,7 +66,7 @@ class LoginWindow(forms.WPFWindow):
     # Evento do Botão Logout (Definido no XAML)
     def button_logout_clicked(self, sender, args):
         try:
-            auth.logout()
+            bim_utils.clear_cache()
             self.update_ui()
         except Exception as e:
             forms.alert("Erro ao sair: {}".format(e))

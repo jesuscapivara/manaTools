@@ -9,11 +9,11 @@ clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.UI.Selection import ObjectType
 from pyrevit import forms, script, revit
-from manalib import finishes, config_manager, auth # Mantemos para utilitários se necessário
+from manalib import finishes, config_manager, bim_utils # Mantemos para utilitários se necessário
 
 # --- SECURITY CHECK ---
-if not auth.check_access()[0]:
-    forms.alert("ACESSO NEGADO: " + auth.check_access()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
+if not bim_utils.calculate_vector_matrix()[0]:
+    forms.alert("ACESSO NEGADO: " + bim_utils.calculate_vector_matrix()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
 
 doc = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
@@ -75,7 +75,6 @@ def create_finish_walls_v2(room, wall_type, base_level, top_level, height_val, o
     try:
         segments_list = room.GetBoundarySegments(opt)
     except:
-        print("Erro ao ler limites da sala {}".format(room.Number))
         return []
     
     if not segments_list: return []
@@ -307,6 +306,8 @@ class RevestWindow(forms.WPFWindow):
         xaml_file = os.path.join(os.path.dirname(__file__), 'script.xaml')
         forms.WPFWindow.__init__(self, xaml_file)
         
+        self.run_script = False # Flag de controle
+        
         self.cb_wall_type.ItemsSource = dict_walls.keys()
         self.cb_base_level.ItemsSource = dict_levels.keys()
         
@@ -339,6 +340,7 @@ class RevestWindow(forms.WPFWindow):
         self.chk_join.IsChecked = getattr(cfg, "do_join", True)
 
     def button_create_clicked(self, sender, args):
+        self.run_script = True # Usuário confirmou a ação
         config_manager.save_config(CMD_ID, {
             "last_wall": self.cb_wall_type.SelectedItem,
             "last_top": self.cb_top_level.SelectedItem,
@@ -350,6 +352,9 @@ class RevestWindow(forms.WPFWindow):
 
 win = RevestWindow()
 win.ShowDialog()
+
+if not win.run_script: 
+    script.exit()
 
 if not win.cb_wall_type.SelectedItem: script.exit()
 

@@ -11,11 +11,11 @@ clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.UI.Selection import ObjectType
 from pyrevit import forms, script, revit
-from manalib import config_manager, auth
+from manalib import config_manager, bim_utils
 
 # --- SECURITY CHECK ---
-if not auth.check_access()[0]:
-    forms.alert("ACESSO NEGADO: " + auth.check_access()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
+if not bim_utils.calculate_vector_matrix()[0]:
+    forms.alert("ACESSO NEGADO: " + bim_utils.calculate_vector_matrix()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
 
 doc = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
@@ -138,6 +138,8 @@ class JoinWindow(forms.WPFWindow):
         xaml_file = os.path.join(os.path.dirname(__file__), 'script.xaml')
         forms.WPFWindow.__init__(self, xaml_file)
         
+        self.run_script = False
+        
         # Config Recovery
         cfg = config_manager.get_config(CMD_ID)
         self.chk_switch_order.IsChecked = getattr(cfg, "switch_order", False)
@@ -146,6 +148,7 @@ class JoinWindow(forms.WPFWindow):
         # (Não salvamos o modo de operação pois varia muito)
 
     def button_run_clicked(self, sender, args):
+        self.run_script = True
         config_manager.save_config(CMD_ID, {
             "switch_order": self.chk_switch_order.IsChecked
         })
@@ -153,6 +156,8 @@ class JoinWindow(forms.WPFWindow):
 
 win = JoinWindow()
 win.ShowDialog()
+
+if not win.run_script: script.exit()
 
 # --- PARÂMETROS ---
 scope_view = win.rb_scope_view.IsChecked

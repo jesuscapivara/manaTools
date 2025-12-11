@@ -3,7 +3,6 @@
 Renomeia Tipos de Esquadrias.
 FIX CRÍTICO: Substituída a leitura de .Name por SYMBOL_NAME_PARAM para evitar AttributeError.
 """
-import traceback
 from Autodesk.Revit.DB import FilteredElementCollector, BuiltInCategory, BuiltInParameter, Element, ElementType
 from pyrevit import forms, script, revit
 from manalib import joinery, revit_utils
@@ -87,7 +86,6 @@ with revit_utils.setup_transaction(doc, "Smart Rename"):
                 new_name = joinery.generate_new_name(el_type)
                 
                 if not new_name:
-                    print("⚠️ Ignorado (Sem medidas): " + el_type.FamilyName)
                     continue
                 
                 # LEITURA SEGURA AQUI (Substitui el_type.Name)
@@ -99,25 +97,20 @@ with revit_utils.setup_transaction(doc, "Smart Rename"):
                 # 2. Tenta Renomear
                 try:
                     el_type.Name = new_name
-                    print("✅ {} -> {}".format(el_type.FamilyName, new_name))
                     count_ok += 1
-                
+
                 except Exception as e_rename:
                     # Se falhar (ex: duplicidade ou AttributeError no Setter), tenta ID
                     error_msg = str(e_rename)
-                    
+
                     unique_name = "{} (ID:{})".format(new_name, el_type.Id)
                     try:
                         el_type.Name = unique_name
-                        print("🔂 Conflito resolvido: " + unique_name)
                         count_ok += 1
                     except Exception as e_final:
-                        print("❌ ERRO REAL em {}: {}".format(el_type.FamilyName, e_final))
                         count_err += 1
 
             except Exception as e:
-                logger.error("Erro Script: " + str(e))
-                print(traceback.format_exc())
                 count_err += 1
             
             pb.update_progress(i+1, len(sorted_elements))

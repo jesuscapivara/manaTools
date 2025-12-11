@@ -12,11 +12,11 @@ clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.UI.Selection import ObjectType
 from pyrevit import forms, script, revit
-from manalib import config_manager, auth
+from manalib import config_manager, bim_utils
 
 # --- SECURITY CHECK ---
-if not auth.check_access()[0]:
-    forms.alert("ACESSO NEGADO: " + auth.check_access()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
+if not bim_utils.calculate_vector_matrix()[0]:
+    forms.alert("ACESSO NEGADO: " + bim_utils.calculate_vector_matrix()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
 
 doc = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
@@ -119,7 +119,6 @@ def create_threshold_geometry(door, wall, side_offset, width_offset):
     vec_thick = XYZ(-vec_wall.Y, vec_wall.X, 0)
     
     d_width = get_door_width(door)
-    print("DEBUG: Porta ID {} - Largura Detectada: {:.2f}m".format(door.Id, d_width * 0.3048))
     w_thick = get_wall_width(wall)
     
     length = d_width + (side_offset * 2)
@@ -157,6 +156,8 @@ class SoleiraWindow(forms.WPFWindow):
         xaml_file = os.path.join(os.path.dirname(__file__), 'script.xaml')
         forms.WPFWindow.__init__(self, xaml_file)
         
+        self.run_script = False
+        
         self.cb_floor_type.ItemsSource = sorted_names
         self.cb_floor_type.SelectedIndex = 0
         
@@ -171,6 +172,7 @@ class SoleiraWindow(forms.WPFWindow):
         self.chk_join.IsChecked = getattr(cfg, "do_join", True)
 
     def button_create_clicked(self, sender, args):
+        self.run_script = True
         config_manager.save_config(CMD_ID, {
             "last_floor": self.cb_floor_type.SelectedItem,
             "side_offset": self.tb_side_offset.Text,
@@ -181,6 +183,8 @@ class SoleiraWindow(forms.WPFWindow):
 
 win = SoleiraWindow()
 win.ShowDialog()
+
+if not win.run_script: script.exit()
 
 if not win.cb_floor_type.SelectedItem: script.exit()
 
@@ -205,7 +209,6 @@ try:
         # Pega a parede hospedeira
         wall = door.Host
         if not wall or not isinstance(wall, Wall):
-            print("Aviso: Porta {} não tem parede hospedeira válida.".format(door.Id))
             continue
             
         loops = create_threshold_geometry(door, wall, side_off, width_off)
@@ -226,7 +229,7 @@ try:
                     
                 created_count += 1
             except Exception as ex:
-                print("Erro porta {}: {}".format(door.Id, ex))
+                pass
 
     t.Commit()
     forms.toast("Sucesso: {} soleiras criadas.".format(created_count))

@@ -10,11 +10,11 @@ clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.UI.Selection import ObjectType
 from pyrevit import forms, script, revit
-from manalib import config_manager, auth
+from manalib import config_manager, bim_utils
 
 # --- SECURITY CHECK ---
-if not auth.check_access()[0]:
-    forms.alert("ACESSO NEGADO: " + auth.check_access()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
+if not bim_utils.calculate_vector_matrix()[0]:
+    forms.alert("ACESSO NEGADO: " + bim_utils.calculate_vector_matrix()[1] + "\n\nPor favor, faça Login na aba 'Gestão'.", exitscript=True)
 
 doc = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
@@ -106,8 +106,6 @@ def get_wall_segments_minus_openings(room, gap_margin):
     
     segments_list = room.GetBoundarySegments(opt)
     if not segments_list: return []
-
-    print("Processando Sala: {}".format(room.Number))
 
     for segments in segments_list:
         for seg in segments:
@@ -277,6 +275,8 @@ class RodapeLineWindow(forms.WPFWindow):
         xaml_file = os.path.join(os.path.dirname(__file__), 'script.xaml')
         forms.WPFWindow.__init__(self, xaml_file)
         
+        self.run_script = False
+        
         self.cb_sweep_type.ItemsSource = [get_name(t) for t in all_families]
         self.cb_sweep_type.SelectedIndex = 0
         
@@ -295,6 +295,7 @@ class RodapeLineWindow(forms.WPFWindow):
         self.chk_force_cut.IsChecked = True
 
     def button_create_clicked(self, sender, args):
+        self.run_script = True
         config_manager.save_config(CMD_ID, {
             "last_family": self.cb_sweep_type.SelectedItem,
             "last_offset": self.tb_offset.Text,
@@ -304,6 +305,8 @@ class RodapeLineWindow(forms.WPFWindow):
 
 win = RodapeLineWindow()
 win.ShowDialog()
+
+if not win.run_script: script.exit()
 
 if not win.cb_sweep_type.SelectedItem: script.exit()
 
