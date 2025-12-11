@@ -117,16 +117,20 @@ def detect_external_face(window, wall):
     Detecta qual lado da parede é externo, baseado na presença de ambientes.
     Considera múltiplos critérios para decidir o lado correto.
     """
+    # Vetor base: usa a orientação da família já considerando flips
+    vec_base = window.FacingOrientation
+    if vec_base.GetLength() == 0:
+        vec_base = wall.Orientation  # fallback
+
     pt_center = window.Location.Point
     wall_thick = get_wall_thickness(wall)
-    vec_orientation = wall.Orientation
     
     # Offset para testar (metade da espessura + um pouco mais)
     test_distance = (wall_thick / 2.0) + 0.5  # +0.5 pés (~15cm) para ter certeza
     
     # Testa os dois lados
-    pt_side_A = pt_center + (vec_orientation * test_distance)
-    pt_side_B = pt_center - (vec_orientation * test_distance)
+    pt_side_A = pt_center + (vec_base * test_distance)   # lado do vec_base
+    pt_side_B = pt_center - (vec_base * test_distance)   # lado oposto
     
     # Verifica se existe Room em cada lado
     room_side_A = doc.GetRoomAtPoint(pt_side_A)
@@ -134,10 +138,10 @@ def detect_external_face(window, wall):
     
     # CASO 1: Só tem Room em um lado -> Pingadeira vai para o lado sem Room
     if room_side_A and not room_side_B:
-        return vec_orientation  # Pingadeira vai para o lado B (externo)
+        return -vec_base  # Room no lado A, pingadeira vai para o lado B (externo)
     
     if room_side_B and not room_side_A:
-        return -vec_orientation  # Pingadeira vai para o lado A (externo)
+        return vec_base  # Room no lado B, pingadeira vai para o lado A (externo)
     
     # CASO 2: Tem Room nos dois lados (janela interna)
     if room_side_A and room_side_B:
@@ -146,10 +150,10 @@ def detect_external_face(window, wall):
         is_B_external = is_external_room(room_side_B)
         
         if is_A_external and not is_B_external:
-            return vec_orientation  # A é externo, pingadeira vai para A
+            return vec_base  # A é externo, pingadeira vai para A
         
         if is_B_external and not is_A_external:
-            return -vec_orientation  # B é externo, pingadeira vai para B
+            return -vec_base  # B é externo, pingadeira vai para B
         
         # 2.2: Se ambos parecem internos, compara áreas
         # Área muito grande pode indicar área externa mal configurada
@@ -159,13 +163,13 @@ def detect_external_face(window, wall):
         # Se um ambiente é significativamente maior (>3x), provavelmente é externo
         if area_A > 0 and area_B > 0:
             if area_A > area_B * 3:
-                return vec_orientation  # A é muito maior, provavelmente externo
+                return vec_base  # A é muito maior, provavelmente externo
             if area_B > area_A * 3:
-                return -vec_orientation  # B é muito maior, provavelmente externo
+                return -vec_base  # B é muito maior, provavelmente externo
     
     # CASO 3: Sem Room em nenhum lado, ou casos indeterminados
     # Usa orientação padrão da parede (geralmente aponta para fora)
-    return vec_orientation
+    return vec_base
 
 def create_sill_geometry(window, wall, side_offset, overhang, internal_depth):
     # Geometria base

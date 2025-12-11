@@ -1,8 +1,5 @@
-# Metadados do botão BatchPDF
-title: Exportar
-  PDFs
+title: Exportar PDFs
 tooltip: Exporta pranchas em lote (Maná Standard)
-# Força o uso do ícone grande se disponível
 big_image: icon.png
 author: Lucas Rossetti
 description: Exporta múltiplas pranchas em PDF com nomenclatura personalizada (NUMERO-NOME)
