@@ -1,0 +1,47 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Maná Pingadeiras" Height="410" Width="420" 
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize" Background="#F0F0F0">
+    
+    <StackPanel Margin="20">
+        <TextBlock Text="CRIAR PINGADEIRAS (JANELAS)" FontWeight="Bold" FontSize="16" Foreground="#2C3E50"
+                   Margin="0,0,0,20" HorizontalAlignment="Center"/>
+
+        <Border BorderBrush="#BDC3C7" BorderThickness="1" CornerRadius="5" Padding="10" Background="White" Margin="0,0,0,15">
+            <StackPanel>
+                <Label Content="Tipo de Piso (Pingadeira):" FontWeight="SemiBold"/>
+                <ComboBox Name="cb_floor_type" Margin="0,0,0,10" Height="25"/>
+                
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <StackPanel Grid.Column="0">
+                        <Label Content="Folga Lateral (cm):" ToolTip="Entrada na parede (Boneca)."/>
+                        <TextBox Name="tb_side_offset" Text="5" Height="25" VerticalContentAlignment="Center"/>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Column="2">
+                        <Label Content="Balanço Externo (cm):" ToolTip="Quanto sai para fora da parede."/>
+                        <TextBox Name="tb_overhang" Text="3" Height="25" VerticalContentAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel Margin="0,10,0,0">
+                    <Label Content="Profundidade Interna (cm):" ToolTip="Quanto entra na parede a partir da face externa."/>
+                    <TextBox Name="tb_internal_depth" Text="9" Height="25" VerticalContentAlignment="Center"/>
+                </StackPanel>
+                
+                <CheckBox Name="chk_join" Content="Unir com Parede (Recorte)" IsChecked="True" 
+                          Margin="0,15,0,0" ToolTip="Corta a parede para encaixar a pingadeira."/>
+            </StackPanel>
+        </Border>
+        
+        <Button Name="btn_create" Content="GERAR PINGADEIRAS" Height="45" 
+                FontWeight="Bold" FontSize="14" Background="#27AE60" Foreground="White" 
+                BorderThickness="0" Cursor="Hand" Click="button_create_clicked"/>
+    </StackPanel>
+</Window>
