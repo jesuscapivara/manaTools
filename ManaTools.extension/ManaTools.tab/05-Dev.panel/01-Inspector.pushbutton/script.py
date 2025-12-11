@@ -28,10 +28,19 @@ def get_element_name(element):
 
 # --- 1. Seleção ---
 selection = revit.get_selection()
-if not selection:
-    forms.alert("Selecione um elemento.", exitscript=True)
 
-element = selection[0]
+if selection:
+    element = selection[0]
+else:
+    # Permite clicar no elemento mesmo sem pré-seleção
+    try:
+        picked = revit.pick_element(message="Selecione um elemento para inspecionar")
+        if not picked:
+            script.exit()
+        element = picked
+    except Exception:
+        forms.alert("Nenhum elemento selecionado.", exitscript=True)
+
 # Pega o Tipo se não for Tipo
 element_type = doc.GetElement(element.GetTypeId()) if hasattr(element, "GetTypeId") and element.GetTypeId().IntegerValue > 0 else None
 
