@@ -414,19 +414,7 @@ try:
                 )
                 
                 if inst:
-                    # Ajuste de Altura (Z)
-                    # Nota: Se foi espelhado em Z pelo nível, a altura pode ter ficado correta (mesmo Z)
-                    # ou invertida (se o plano de espelho não for o centro).
-                    # Como usamos o nível como plano, o Z é mantido (z -> -z relativo ao plano 0? não, z=0 é fixo)
-                    # Mirror pelo plano Z=h espelha z -> z. 
-                    # Mirror pelo plano Z=0 espelha h -> -h.
-                    
-                    # No código usamos plane_z = level.Elevation.
-                    # Se a tabica é criada no nível (offset 0), o mirror pelo plano do nível mantém ela no nível,
-                    # apenas invertendo a geometria em Z.
-                    
-                    # Então aplicamos o offset DEPOIS do mirror.
-                    
+                  
                     p_elev = inst.get_Parameter(BuiltInParameter.INSTANCE_ELEVATION_PARAM)
                     if not p_elev or p_elev.IsReadOnly:
                         p_elev = inst.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM)
