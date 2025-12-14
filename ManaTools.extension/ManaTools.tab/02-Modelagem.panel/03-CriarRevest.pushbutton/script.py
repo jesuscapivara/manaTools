@@ -106,10 +106,42 @@ def create_finish_walls_v2(room, wall_type, base_level, top_level, height_val, o
             curve = seg.GetCurve()
             
             try:
+                # --- CALCULA OFFSET PARA DENTRO DO AMBIENTE ---
+                # Largura da parede de revestimento dividida por 2
+                wall_width = wall_type.Width
+                offset_inward = wall_width / 2.0
+                
+                # Determina direção "para dentro" do ambiente
+                # Pega um ponto médio da curva
+                p0 = curve.GetEndPoint(0)
+                p1 = curve.GetEndPoint(1)
+                mid_pt = (p0 + p1) / 2.0
+                
+                # Calcula vetor tangente e perpendicular
+                vec_tangent = (p1 - p0).Normalize()
+                vec_perp = XYZ(-vec_tangent.Y, vec_tangent.X, 0)  # Perpendicular no plano XY
+                
+                # Testa qual lado está dentro do ambiente
+                test_pt_right = mid_pt + (vec_perp * 0.1)  # 10cm para direita
+                test_pt_left = mid_pt - (vec_perp * 0.1)   # 10cm para esquerda
+                
+                is_right_inside = room.IsPointInRoom(test_pt_right)
+                
+                # Se o lado direito está dentro, move para a direita (offset positivo)
+                # Se o lado esquerdo está dentro, move para a esquerda (offset negativo)
+                if is_right_inside:
+                    offset_vector = vec_perp * offset_inward
+                else:
+                    offset_vector = -vec_perp * offset_inward
+                
+                # Aplica offset na curva
+                transform = Transform.CreateTranslation(offset_vector)
+                offset_curve = curve.CreateTransformed(transform)
+                
                 # ESTRATÉGIA SEGURA: Sempre criar Desconectado primeiro
                 safe_h = height_val if height_val > 0.1 else 10.0
                 
-                new_wall = Wall.Create(doc, curve, wall_type.Id, base_level_id, safe_h, offset_val, False, False)
+                new_wall = Wall.Create(doc, offset_curve, wall_type.Id, base_level_id, safe_h, offset_val, False, False)
                 
                 # Pós-Processamento de Parâmetros
                 # 1. Location Line -> Face Externa (2)
