@@ -1,0 +1,83 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Maná Elevações" Height="650" Width="400" 
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize" Background="#F0F0F0">
+    
+    <StackPanel Margin="20">
+        <TextBlock Text="GERADOR DE ELEVAÇÕES INTERNAS" FontWeight="Bold" FontSize="16" Foreground="#2C3E50"
+                   Margin="0,0,0,20" HorizontalAlignment="Center"/>
+
+        <Border BorderBrush="#BDC3C7" BorderThickness="1" CornerRadius="5" Padding="15" Background="White" Margin="0,0,0,15">
+            <StackPanel>
+                <Label Content="Selecione as Vistas:" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                
+                <Grid Width="160" Height="160" HorizontalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="50"/>
+                        <ColumnDefinition Width="60"/>
+                        <ColumnDefinition Width="50"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="50"/>
+                        <RowDefinition Height="60"/>
+                        <RowDefinition Height="50"/>
+                    </Grid.RowDefinitions>
+
+                    <ToggleButton Name="tg_north" Grid.Column="1" Grid.Row="0" Content="▲ N" 
+                                  IsChecked="True" FontWeight="Bold" Background="#ECF0F1" Cursor="Hand"/>
+                    
+                    <ToggleButton Name="tg_west" Grid.Column="0" Grid.Row="1" Content="◄ O" 
+                                  IsChecked="True" FontWeight="Bold" Background="#ECF0F1" Cursor="Hand"/>
+                    
+                    <Border Grid.Column="1" Grid.Row="1" Background="#BDC3C7" CornerRadius="2">
+                        <TextBlock Text="ROOM" VerticalAlignment="Center" HorizontalAlignment="Center" 
+                                   Foreground="White" FontSize="10" FontWeight="Bold"/>
+                    </Border>
+
+                    <ToggleButton Name="tg_east" Grid.Column="2" Grid.Row="1" Content="L ►" 
+                                  IsChecked="True" FontWeight="Bold" Background="#ECF0F1" Cursor="Hand"/>
+                    
+                    <ToggleButton Name="tg_south" Grid.Column="1" Grid.Row="2" Content="▼ S" 
+                                  IsChecked="True" FontWeight="Bold" Background="#ECF0F1" Cursor="Hand"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Border BorderBrush="#BDC3C7" BorderThickness="1" CornerRadius="5" Padding="10" Background="White" Margin="0,0,0,20">
+            <StackPanel>
+                <Label Content="View Template:" FontWeight="SemiBold"/>
+                <ComboBox Name="cb_view_templates" Margin="0,0,0,10" Height="25"/>
+                
+                <Label Content="Offsets Verticais (cm):" FontWeight="SemiBold"/>
+                <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <Label Content="Topo:" FontSize="10"/>
+                        <TextBox Name="tb_offset_top" Text="10" Height="25" VerticalContentAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <Label Content="Base:" FontSize="10"/>
+                        <TextBox Name="tb_offset_bottom" Text="10" Height="25" VerticalContentAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+
+                <Label Content="Offsets Laterais:" FontWeight="SemiBold"/>
+                <CheckBox Name="chk_auto_wall" Content="Detectar Espessura da Parede (Auto)" 
+                          IsChecked="True" Margin="0,0,0,5" ToolTip="Expande o crop exatamente a espessura da parede lateral."/>
+                <StackPanel Orientation="Horizontal">
+                    <Label Content="Extra (cm):" FontSize="10" VerticalAlignment="Center"/>
+                    <TextBox Name="tb_offset_side" Text="0" Width="60" Height="25" Margin="5,0,0,0" VerticalContentAlignment="Center"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        
+        <Button Name="btn_create" Content="GERAR ELEVAÇÕES" Height="45" 
+                FontWeight="Bold" FontSize="14" Background="#2980B9" Foreground="White" 
+                BorderThickness="0" Cursor="Hand" Click="button_create_clicked"/>
+    </StackPanel>
+</Window>
+
