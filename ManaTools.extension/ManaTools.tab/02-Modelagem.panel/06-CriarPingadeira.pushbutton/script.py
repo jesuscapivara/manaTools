@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Cria Pingadeiras (Floors) sob janelas selecionadas.
-Versão Simplificada: Sem inclinação (Flat).
+V2.2: Seleção Interativa (Apenas Janelas) + UI Controlada.
 """
 import os
 import clr
@@ -10,7 +10,8 @@ from System.Collections.Generic import List
 
 clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import *
-from Autodesk.Revit.UI.Selection import ObjectType
+from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
+from Autodesk.Revit.Exceptions import OperationCanceledException
 from pyrevit import forms, script, revit
 from manalib import config_manager, bim_utils
 
@@ -22,7 +23,54 @@ doc = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
 CMD_ID = "manatools_criarpingadeira"
 
-# --- 1. HELPERS ---
+# --- 1. FILTRO DE SELEÇÃO VISUAL ---
+class WindowSelectionFilter(ISelectionFilter):
+    """
+    Permite selecionar apenas Janelas.
+    """
+    def AllowElement(self, elem):
+        if not elem.Category: return False
+        if elem.Category.Id.IntegerValue == int(BuiltInCategory.OST_Windows):
+            return True
+        return False
+
+    def AllowReference(self, reference, position):
+        return False
+
+# --- 2. SELEÇÃO INTERATIVA ---
+def get_user_selection():
+    windows = []
+    seen_ids = set()
+    
+    # Verifica seleção prévia
+    pre_selection = uidoc.Selection.GetElementIds()
+    if pre_selection:
+        filter_instance = WindowSelectionFilter()
+        for eid in pre_selection:
+            elem = doc.GetElement(eid)
+            if filter_instance.AllowElement(elem):
+                if elem.Id not in seen_ids:
+                    windows.append(elem)
+                    seen_ids.add(elem.Id)
+        if windows: return windows
+
+    # Pede nova seleção
+    try:
+        with forms.WarningBar(title="Clique nas Janelas para criar Pingadeira (ESC para concluir):"):
+            refs = uidoc.Selection.PickObjects(
+                ObjectType.Element, 
+                WindowSelectionFilter(), 
+                "Selecione Janelas"
+            )
+            for r in refs: 
+                elem = doc.GetElement(r)
+                if elem.Id not in seen_ids:
+                    windows.append(elem)
+                    seen_ids.add(elem.Id)
+    except OperationCanceledException: pass
+    return windows
+
+# --- 3. HELPER: NOMES ---
 def get_name_hardcore(element):
     if not element: return "Nulo"
     try:
@@ -32,186 +80,92 @@ def get_name_hardcore(element):
     try: return Element.Name.GetValue(element)
     except: return "Elemento ID:{}".format(element.Id)
 
-# --- 2. SELEÇÃO ---
-def get_selected_windows():
-    selection = revit.get_selection()
-    windows = []
-    seen = set()
-    
-    def add(w):
-        if w and w.Id not in seen:
-            windows.append(w)
-            seen.add(w.Id)
-
-    for elem in selection:
-        if not elem.Category: continue
-        if elem.Category.Id.IntegerValue == int(BuiltInCategory.OST_Windows):
-            add(elem)
-            
-    if not windows:
-        try:
-            with forms.WarningBar(title="Selecione Janelas (ESC para sair):"):
-                refs = uidoc.Selection.PickObjects(ObjectType.Element, "Selecione Janelas")
-                for r in refs: 
-                    e = doc.GetElement(r)
-                    if e.Category.Id.IntegerValue == int(BuiltInCategory.OST_Windows):
-                        add(e)
-        except: pass
-    return windows
-
-# --- 3. GEOMETRIA ---
+# --- 4. GEOMETRIA ---
 def get_window_width(window):
     params = [BuiltInParameter.WINDOW_WIDTH, BuiltInParameter.FAMILY_WIDTH_PARAM, BuiltInParameter.FURNITURE_WIDTH]
     for pid in params:
         p = window.get_Parameter(pid)
         if not p: p = window.Symbol.get_Parameter(pid)
-        if p and p.HasValue: return p.AsDouble()
-    for pid in params:
-        p = window.Symbol.get_Parameter(pid)
-        if p and p.HasValue: return p.AsDouble()
+        if p and p.HasValue and p.AsDouble() > 0: return p.AsDouble()
+    
+    # Tenta por nome também
+    for name in ["Width", "Largura", "Vão Luz"]:
+        p = window.LookupParameter(name)
+        if not p: p = window.Symbol.LookupParameter(name)
+        if p and p.HasValue and p.AsDouble() > 0: return p.AsDouble()
+        
     return 1.0
 
 def get_wall_thickness(wall):
     return wall.Width
 
 def is_external_room(room):
-    """
-    Verifica se um ambiente parece ser externo baseado no nome.
-    """
     if not room: return True
-    
     try:
-        room_name = room.get_Parameter(BuiltInParameter.ROOM_NAME).AsString()
-        room_number = room.get_Parameter(BuiltInParameter.ROOM_NUMBER).AsString()
-        
-        # Lista de termos que indicam área externa
-        external_terms = [
-            "calcada", "calçada", "rua", "exterior", "externo", "externa",
-            "varanda", "sacada", "area externa", "área externa", 
-            "passeio", "logradouro", "jardim externo"
-        ]
-        
-        name_lower = (room_name or "").lower()
-        number_lower = (room_number or "").lower()
-        
+        room_name = (room.get_Parameter(BuiltInParameter.ROOM_NAME).AsString() or "").lower()
+        external_terms = ["exterior", "externo", "varanda", "sacada", "rua", "jardim"]
         for term in external_terms:
-            if term in name_lower or term in number_lower:
-                return True
-                
+            if term in room_name: return True
     except: pass
-    
     return False
 
-def get_room_area(room):
-    """Retorna a área do ambiente em pés quadrados."""
-    if not room: return 0
-    try:
-        p_area = room.get_Parameter(BuiltInParameter.ROOM_AREA)
-        if p_area and p_area.HasValue:
-            return p_area.AsDouble()
-    except: pass
-    return 0
-
 def detect_external_face(window, wall):
-    """
-    Detecta qual lado da parede é externo, baseado na presença de ambientes.
-    Considera múltiplos critérios para decidir o lado correto.
-    """
-    # Vetor base: usa a orientação da família já considerando flips
     vec_base = window.FacingOrientation
-    if vec_base.GetLength() == 0:
-        vec_base = wall.Orientation  # fallback
+    if vec_base.GetLength() == 0: vec_base = wall.Orientation
 
     pt_center = window.Location.Point
     wall_thick = get_wall_thickness(wall)
+    test_dist = (wall_thick / 2.0) + 0.5 
     
-    # Offset para testar (metade da espessura + um pouco mais)
-    test_distance = (wall_thick / 2.0) + 0.5  # +0.5 pés (~15cm) para ter certeza
+    pt_A = pt_center + (vec_base * test_dist)
+    pt_B = pt_center - (vec_base * test_dist)
     
-    # Testa os dois lados
-    pt_side_A = pt_center + (vec_base * test_distance)   # lado do vec_base
-    pt_side_B = pt_center - (vec_base * test_distance)   # lado oposto
+    room_A = doc.GetRoomAtPoint(pt_A)
+    room_B = doc.GetRoomAtPoint(pt_B)
     
-    # Verifica se existe Room em cada lado
-    room_side_A = doc.GetRoomAtPoint(pt_side_A)
-    room_side_B = doc.GetRoomAtPoint(pt_side_B)
+    if room_A and not room_B: return -vec_base 
+    if room_B and not room_A: return vec_base 
     
-    # CASO 1: Só tem Room em um lado -> Pingadeira vai para o lado sem Room
-    if room_side_A and not room_side_B:
-        return -vec_base  # Room no lado A, pingadeira vai para o lado B (externo)
-    
-    if room_side_B and not room_side_A:
-        return vec_base  # Room no lado B, pingadeira vai para o lado A (externo)
-    
-    # CASO 2: Tem Room nos dois lados (janela interna)
-    if room_side_A and room_side_B:
-        # 2.1: Verifica se algum tem nome indicando área externa
-        is_A_external = is_external_room(room_side_A)
-        is_B_external = is_external_room(room_side_B)
+    if room_A and room_B:
+        if is_external_room(room_A): return vec_base
+        if is_external_room(room_B): return -vec_base
         
-        if is_A_external and not is_B_external:
-            return vec_base  # A é externo, pingadeira vai para A
-        
-        if is_B_external and not is_A_external:
-            return -vec_base  # B é externo, pingadeira vai para B
-        
-        # 2.2: Se ambos parecem internos, compara áreas
-        # Área muito grande pode indicar área externa mal configurada
-        area_A = get_room_area(room_side_A)
-        area_B = get_room_area(room_side_B)
-        
-        # Se um ambiente é significativamente maior (>3x), provavelmente é externo
-        if area_A > 0 and area_B > 0:
-            if area_A > area_B * 3:
-                return vec_base  # A é muito maior, provavelmente externo
-            if area_B > area_A * 3:
-                return -vec_base  # B é muito maior, provavelmente externo
-    
-    # CASO 3: Sem Room em nenhum lado, ou casos indeterminados
-    # Usa orientação padrão da parede (geralmente aponta para fora)
     return vec_base
 
 def create_sill_geometry(window, wall, side_offset, overhang, internal_depth):
-    # Geometria base
     pt_center = window.Location.Point
-    
     lc = wall.Location
     if not isinstance(lc, LocationCurve): return None
     line = lc.Curve
     
     vec_wall = (line.GetEndPoint(1) - line.GetEndPoint(0)).Normalize()
-    vec_out = detect_external_face(window, wall)  # Usa detecção inteligente
+    vec_out = detect_external_face(window, wall)
     
     w_width = get_window_width(window)
     wall_thick = get_wall_thickness(wall)
-    
     length = w_width + (side_offset * 2)
-    # total_depth = internal_depth + overhang # Não usado no retorno, apenas para cálculo interno
     
-    dist_axis_to_ext_face = wall_thick / 2.0
-    pt_ext_face_center = pt_center + (vec_out * dist_axis_to_ext_face)
+    dist_axis = wall_thick / 2.0
+    pt_ext_face = pt_center + (vec_out * dist_axis)
     
-    pt_start_center = pt_ext_face_center - (vec_out * internal_depth) 
-    pt_end_center = pt_ext_face_center + (vec_out * overhang)         
+    pt_start = pt_ext_face - (vec_out * internal_depth) 
+    pt_end = pt_ext_face + (vec_out * overhang)         
     
     v_long = vec_wall * (length / 2.0)
     
     def flat(pt): return XYZ(pt.X, pt.Y, 0)
     
-    p1 = flat(pt_start_center - v_long)
-    p2 = flat(pt_start_center + v_long)
-    p3 = flat(pt_end_center + v_long)
-    p4 = flat(pt_end_center - v_long)
+    p1 = flat(pt_start - v_long)
+    p2 = flat(pt_start + v_long)
+    p3 = flat(pt_end + v_long)
+    p4 = flat(pt_end - v_long)
     
     loops = []
     lines = [
-        Line.CreateBound(p1, p2),
-        Line.CreateBound(p2, p3),
-        Line.CreateBound(p3, p4),
-        Line.CreateBound(p4, p1)
+        Line.CreateBound(p1, p2), Line.CreateBound(p2, p3),
+        Line.CreateBound(p3, p4), Line.CreateBound(p4, p1)
     ]
     loops.append(CurveLoop.Create(lines))
-    
     return loops
 
 # --- PREP DADOS ---
@@ -223,13 +177,10 @@ floor_data.sort(key=lambda x: x[0])
 sorted_names = [x[0] for x in floor_data]
 sorted_elements = [x[1] for x in floor_data]
 
-# --- GUI ---
-windows = get_selected_windows()
-if not windows: script.exit()
-
 if not sorted_names:
     forms.alert("Nenhum Tipo de Piso encontrado.", exitscript=True)
 
+# --- GUI ---
 class PingadeiraWindow(forms.WPFWindow):
     def __init__(self):
         xaml_file = os.path.join(os.path.dirname(__file__), 'script.xaml')
@@ -265,7 +216,12 @@ class PingadeiraWindow(forms.WPFWindow):
 win = PingadeiraWindow()
 win.ShowDialog()
 
+# --- SÓ RODA SE CLICOU ---
 if not win.run_script: script.exit()
+
+# --- AGORA PEDE SELEÇÃO (JANELAS) ---
+windows = get_user_selection()
+if not windows: script.exit()
 
 if not win.cb_floor_type.SelectedItem: script.exit()
 
@@ -287,8 +243,7 @@ try:
     count = 0
     for win_elem in windows:
         wall = win_elem.Host
-        if not wall or not isinstance(wall, Wall):
-            continue
+        if not wall or not isinstance(wall, Wall): continue
             
         loops = create_sill_geometry(win_elem, wall, side_off, overhang, internal_depth)
         
@@ -311,11 +266,10 @@ try:
                     except: pass
                     
                 count += 1
-            except Exception as ex:
-                pass
+            except: pass
                 
     t.Commit()
-    forms.toast("Sucesso: {} pingadeiras criadas (Flat).".format(count))
+    forms.toast("Sucesso: {} pingadeiras criadas.".format(count))
 
 except Exception as e:
     t.RollBack()

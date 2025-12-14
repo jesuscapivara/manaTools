@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Cria Soleiras (Floors) sob portas selecionadas.
-Abordagem direta: Seleciona Porta -> Lê Hospedeiro (Parede) -> Cria Piso.
+V2.1: Correção de Largura (Leitura Robusta) + Seleção Interativa.
 """
 import os
 import clr
@@ -10,7 +10,8 @@ from System.Collections.Generic import List
 
 clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import *
-from Autodesk.Revit.UI.Selection import ObjectType
+from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
+from Autodesk.Revit.Exceptions import OperationCanceledException
 from pyrevit import forms, script, revit
 from manalib import config_manager, bim_utils
 
@@ -22,135 +23,152 @@ doc = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
 CMD_ID = "manatools_criarsoleira"
 
-# --- 1. FUNÇÃO DE NOME INFALÍVEL ---
+# --- 1. FILTRO DE SELEÇÃO VISUAL ---
+class DoorSelectionFilter(ISelectionFilter):
+    def AllowElement(self, elem):
+        if not elem.Category: return False
+        if elem.Category.Id.IntegerValue == int(BuiltInCategory.OST_Doors): return True
+        return False
+    def AllowReference(self, reference, position): return False
+
+# --- 2. SELEÇÃO INTERATIVA ---
+def get_user_selection():
+    doors = []
+    seen_ids = set()
+    
+    pre_selection = uidoc.Selection.GetElementIds()
+    if pre_selection:
+        filter_instance = DoorSelectionFilter()
+        for eid in pre_selection:
+            elem = doc.GetElement(eid)
+            if filter_instance.AllowElement(elem):
+                if elem.Id not in seen_ids:
+                    doors.append(elem)
+                    seen_ids.add(elem.Id)
+        if doors: return doors
+
+    try:
+        with forms.WarningBar(title="Clique nas Portas para criar Soleira (ESC para concluir):"):
+            refs = uidoc.Selection.PickObjects(ObjectType.Element, DoorSelectionFilter(), "Selecione Portas")
+            for r in refs: 
+                elem = doc.GetElement(r)
+                if elem.Id not in seen_ids:
+                    doors.append(elem)
+                    seen_ids.add(elem.Id)
+    except OperationCanceledException: pass
+    return doors
+
+# --- 3. HELPER: NOMES ---
 def get_name_hardcore(element):
     if not element: return "Nulo"
     try:
         p = element.get_Parameter(BuiltInParameter.ALL_MODEL_TYPE_NAME)
-        if p and p.HasValue:
-            val = p.AsString()
-            if val: return val
+        if p and p.HasValue: return p.AsString()
     except: pass
-    try:
-        p = element.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM)
-        if p and p.HasValue:
-            val = p.AsString()
-            if val: return val
-    except: pass
-    try:
-        return Element.Name.GetValue(element)
-    except: pass
-    return "Elemento ID:{}".format(element.Id)
+    try: return Element.Name.GetValue(element)
+    except: return "Elemento ID:{}".format(element.Id)
 
-# --- 2. PREPARAÇÃO DE DADOS (SAFE SORT) ---
-raw_floors = FilteredElementCollector(doc).OfClass(FloorType).ToElements()
-floor_data = []
-for f in raw_floors:
-    safe_name = get_name_hardcore(f)
-    floor_data.append((safe_name, f))
-floor_data.sort(key=lambda x: x[0])
-sorted_names = [x[0] for x in floor_data]
-sorted_elements = [x[1] for x in floor_data]
-
-# --- 3. SELEÇÃO DE PORTAS (DIRETA) ---
-def get_selected_doors():
-    selection = revit.get_selection()
-    doors = []
-    seen = set()
-    
-    def add(d):
-        if d and d.Id not in seen:
-            doors.append(d)
-            seen.add(d.Id)
-
-    for elem in selection:
-        if not elem.Category: continue
-        if elem.Category.Id.IntegerValue == int(BuiltInCategory.OST_Doors):
-            add(elem)
-            
-    if not doors:
-        try:
-            with forms.WarningBar(title="Selecione Portas (ESC para sair):"):
-                refs = uidoc.Selection.PickObjects(ObjectType.Element, "Selecione Portas")
-                for r in refs: 
-                    e = doc.GetElement(r)
-                    if e.Category.Id.IntegerValue == int(BuiltInCategory.OST_Doors):
-                        add(e)
-        except: pass
-    return doors
-
-# --- 4. GEOMETRIA ---
+# --- 4. GEOMETRIA ROBUSTA ---
 def get_door_width(door):
-    # Tenta ler largura real, priorizando FURNITURE_WIDTH (Inspector Maná)
-    # Lista de prioridade baseada no HTML do usuário
+    """
+    Tenta obter a largura do vão da porta de todas as formas possíveis.
+    """
+    # 1. Tenta Parâmetros de Instância e Tipo (Prioridade)
     params_to_check = [
-        BuiltInParameter.FURNITURE_WIDTH, # Largura (0.92) - Mais preciso
-        BuiltInParameter.DOOR_WIDTH,      # Largura Padrão
-        BuiltInParameter.FAMILY_WIDTH_PARAM
+        BuiltInParameter.DOOR_WIDTH,           # Largura Nativa
+        BuiltInParameter.FURNITURE_WIDTH,      # Largura Mobiliário
+        BuiltInParameter.FAMILY_WIDTH_PARAM,   # Largura Família
+        BuiltInParameter.GENERIC_WIDTH         # Largura Genérica
     ]
     
-    # 1. Instância
+    # Check Instance
     for pid in params_to_check:
         p = door.get_Parameter(pid)
         if p and p.HasValue:
             val = p.AsDouble()
-            if val > 0: return val
+            if val > 0.1: return val # Ignora valores zerados
             
-    # 2. Tipo (Symbol)
-    for pid in params_to_check:
-        p = door.Symbol.get_Parameter(pid)
+    # Check Type
+    symbol = door.Symbol
+    if symbol:
+        for pid in params_to_check:
+            p = symbol.get_Parameter(pid)
+            if p and p.HasValue:
+                val = p.AsDouble()
+                if val > 0.1: return val
+                
+    # 2. Tenta parâmetros por nome (String) - Caso seja parâmetro compartilhado
+    for name in ["Width", "Largura", "Vão Luz", "Rough Width", "Largura Aproximada"]:
+        p = door.LookupParameter(name)
+        if not p: p = symbol.LookupParameter(name)
         if p and p.HasValue:
             val = p.AsDouble()
-            if val > 0: return val
-            
-    return 0.8 # Fallback 
+            if val > 0.1: return val
+
+    return 0.8 # Fallback final (80cm)
 
 def get_wall_width(wall):
     return wall.Width
 
 def create_threshold_geometry(door, wall, side_offset, width_offset):
     pt_center = door.Location.Point
-    
     lc = wall.Location
     if not isinstance(lc, LocationCurve): return None
     line = lc.Curve
     
+    # Vetores da Parede
+    # Normalizamos para garantir precisão
     vec_wall = (line.GetEndPoint(1) - line.GetEndPoint(0)).Normalize()
-    vec_thick = XYZ(-vec_wall.Y, vec_wall.X, 0)
     
+    # Vetor Perpendicular (Espessura)
+    # Rotação 90 graus em Z: (x, y) -> (-y, x)
+    vec_thick = XYZ(-vec_wall.Y, vec_wall.X, 0).Normalize()
+    
+    # Dimensões Reais
     d_width = get_door_width(door)
     w_thick = get_wall_width(wall)
     
+    # Comprimento Total (Largura Porta + Folgas Laterais)
     length = d_width + (side_offset * 2)
+    
+    # Espessura Total (Espessura Parede + Folgas Transversais)
     thickness = w_thick + (width_offset * 2)
     
+    # Vetores de Deslocamento (Metade para cada lado a partir do centro)
     v_long = vec_wall * (length / 2.0)
     v_trans = vec_thick * (thickness / 2.0)
     
+    # Centro achatado (Z=0 relativo ao nível)
     center_flat = XYZ(pt_center.X, pt_center.Y, 0)
     
+    # Vértices do Retângulo
     p1 = center_flat + v_long + v_trans
     p2 = center_flat - v_long + v_trans
     p3 = center_flat - v_long - v_trans
     p4 = center_flat + v_long - v_trans
     
+    # Cria Loop
     loops = []
     lines = [
-        Line.CreateBound(p1, p2),
-        Line.CreateBound(p2, p3),
-        Line.CreateBound(p3, p4),
-        Line.CreateBound(p4, p1)
+        Line.CreateBound(p1, p2), Line.CreateBound(p2, p3),
+        Line.CreateBound(p3, p4), Line.CreateBound(p4, p1)
     ]
     loops.append(CurveLoop.Create(lines))
     return loops
 
-# --- GUI ---
-doors = get_selected_doors()
-if not doors: script.exit()
+# --- PREP DADOS ---
+raw_floors = FilteredElementCollector(doc).OfClass(FloorType).ToElements()
+floor_data = []
+for f in raw_floors:
+    floor_data.append((get_name_hardcore(f), f))
+floor_data.sort(key=lambda x: x[0])
+sorted_names = [x[0] for x in floor_data]
+sorted_elements = [x[1] for x in floor_data]
 
 if not sorted_names:
     forms.alert("Nenhum Tipo de Piso encontrado.", exitscript=True)
 
+# --- GUI ---
 class SoleiraWindow(forms.WPFWindow):
     def __init__(self):
         xaml_file = os.path.join(os.path.dirname(__file__), 'script.xaml')
@@ -184,7 +202,12 @@ class SoleiraWindow(forms.WPFWindow):
 win = SoleiraWindow()
 win.ShowDialog()
 
+# --- SÓ RODA SE CLICOU ---
 if not win.run_script: script.exit()
+
+# --- AGORA PEDE SELEÇÃO (PORTAS) ---
+doors = get_user_selection()
+if not doors: script.exit()
 
 if not win.cb_floor_type.SelectedItem: script.exit()
 
@@ -204,12 +227,9 @@ t.Start()
 
 try:
     created_count = 0
-    
     for door in doors:
-        # Pega a parede hospedeira
         wall = door.Host
-        if not wall or not isinstance(wall, Wall):
-            continue
+        if not wall or not isinstance(wall, Wall): continue
             
         loops = create_threshold_geometry(door, wall, side_off, width_off)
         if loops:
@@ -223,13 +243,11 @@ try:
                     if p_off: p_off.Set(z_val)
                 
                 if do_join:
-                    try:
-                        JoinGeometryUtils.JoinGeometry(doc, soleira, wall)
+                    try: JoinGeometryUtils.JoinGeometry(doc, soleira, wall)
                     except: pass 
                     
                 created_count += 1
-            except Exception as ex:
-                pass
+            except: pass
 
     t.Commit()
     forms.toast("Sucesso: {} soleiras criadas.".format(created_count))

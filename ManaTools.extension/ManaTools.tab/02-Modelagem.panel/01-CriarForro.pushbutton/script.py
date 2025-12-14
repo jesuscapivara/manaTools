@@ -1,316 +1,209 @@
 # -*- coding: utf-8 -*-
 """
-Cria Forros (Ceilings) e Tabicas (Line Based Families) em Ambientes selecionados.
-Features: Auto-Flip de tabica, Offset negativo do forro, Tratamento de erros de geometria.
+Cria Forros (Ceilings) e Tabicas.
+V2.1: Seleção de Nível Explícita + Seleção Interativa Filtrada.
 """
 import os
 import math
 import clr
 clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import *
-from Autodesk.Revit.UI.Selection import ObjectType
+from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 from Autodesk.Revit.Exceptions import OperationCanceledException
 from pyrevit import forms, script, revit
 from manalib import config_manager
 
 doc = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
-logger = script.get_logger()
-
 CMD_ID = "manatools_criarforro"
 
-# --- HELPER: SELEÇÃO ROBUSTA (Reutilizável) ---
-def get_selected_rooms():
-    selection = revit.get_selection()
+# --- 1. FILTRO DE SELEÇÃO VISUAL ---
+class RoomSelectionFilter(ISelectionFilter):
+    def AllowElement(self, elem):
+        if not elem.Category: return False
+        if elem.Category.Id.IntegerValue == int(BuiltInCategory.OST_Rooms): return True
+        if elem.Category.Id.IntegerValue == int(BuiltInCategory.OST_RoomTags): return True
+        return False
+    def AllowReference(self, reference, position): return False
+
+# --- 2. SELEÇÃO INTERATIVA ---
+def get_user_selection():
     rooms = []
     seen_ids = set()
-
-    def process(elem):
-        r = None
-        if not elem or not elem.Category: return
-        cat_id = elem.Category.Id.IntegerValue
-        
-        if cat_id == int(BuiltInCategory.OST_Rooms):
-            r = elem
-        elif cat_id == int(BuiltInCategory.OST_RoomTags):
-            if isinstance(elem, SpatialElementTag):
-                if hasattr(elem, "Room") and elem.Room: r = elem.Room
-                elif hasattr(elem, "GetTaggedLocalElement"): r = elem.GetTaggedLocalElement()
-        
-        if r and r.Id not in seen_ids:
-            rooms.append(r)
-            seen_ids.add(r.Id)
-
-    for s in selection: process(s)
     
-    if not rooms:
-        try:
-            with forms.WarningBar(title="Selecione Ambientes ou Tags (ESC para cancelar):"):
-                refs = uidoc.Selection.PickObjects(ObjectType.Element, "Selecione Ambientes")
-                for r in refs: process(doc.GetElement(r))
-        except OperationCanceledException:
-            script.exit()
-            
+    pre_selection = uidoc.Selection.GetElementIds()
+    if pre_selection:
+        for eid in pre_selection:
+            elem = doc.GetElement(eid)
+            if RoomSelectionFilter().AllowElement(elem):
+                r = resolve_room(elem)
+                if r and r.Id not in seen_ids:
+                    rooms.append(r)
+                    seen_ids.add(r.Id)
+        if rooms: return rooms
+
+    try:
+        with forms.WarningBar(title="Clique nos Ambientes para o Forro (ESC para concluir):"):
+            refs = uidoc.Selection.PickObjects(
+                ObjectType.Element, 
+                RoomSelectionFilter(), 
+                "Selecione os Ambientes"
+            )
+            for r in refs: 
+                elem = doc.GetElement(r)
+                room = resolve_room(elem)
+                if room and room.Id not in seen_ids:
+                    rooms.append(room)
+                    seen_ids.add(room.Id)
+    except OperationCanceledException: pass
     return rooms
 
-# --- HELPER: GEOMETRIA Z=0 ---
+def resolve_room(elem):
+    if elem.Category.Id.IntegerValue == int(BuiltInCategory.OST_Rooms): return elem
+    elif elem.Category.Id.IntegerValue == int(BuiltInCategory.OST_RoomTags):
+        if isinstance(elem, SpatialElementTag):
+            if elem.Room: return elem.Room
+            elif hasattr(elem, "GetTaggedLocalElement"): return elem.GetTaggedLocalElement()
+    return None
+
+# --- HELPER: GEOMETRIA ---
 def flatten_loop_to_z(curve_loop, z_val=0.0):
-    """Reconstrói um CurveLoop forçando todas as coordenadas Z para um valor fixo."""
     curves = []
     iterator = curve_loop
-    
-    if isinstance(curve_loop, CurveLoop):
-        iterator = curve_loop
-        
+    if isinstance(curve_loop, CurveLoop): iterator = curve_loop
     for curve in iterator:
         p0 = curve.GetEndPoint(0)
         p1 = curve.GetEndPoint(1)
         new_p0 = XYZ(p0.X, p0.Y, z_val)
         new_p1 = XYZ(p1.X, p1.Y, z_val)
-        
         try:
             if isinstance(curve, Line):
                 curves.append(Line.CreateBound(new_p0, new_p1))
             else:
                 trans = XYZ(0, 0, z_val - p0.Z)
                 curves.append(curve.CreateTransformed(Transform.CreateTranslation(trans)))
-        except:
-            pass 
-            
-    try:
-        return CurveLoop.Create(curves)
-    except:
-        return None
-
-# --- HELPER: DADOS DO PROJETO ---
-def get_ceiling_types():
-    return FilteredElementCollector(doc).OfClass(CeilingType).ToElements()
-
-def get_line_based_families():
-    symbols = FilteredElementCollector(doc).OfClass(FamilySymbol).OfCategory(BuiltInCategory.OST_GenericModel).ToElements()
-    valid = []
-    for s in symbols:
-        try:
-            if s.Family.FamilyPlacementType == FamilyPlacementType.CurveDrivenStructural or \
-               s.Family.FamilyPlacementType == FamilyPlacementType.CurveBased:
-                valid.append(s)
         except: pass
-    return valid
+    try: return CurveLoop.Create(curves)
+    except: return None
 
-def get_name(e):
-    return Element.Name.GetValue(e)
-
-# --- CORE LOGIC: TABICA (SIMPLIFICADO + VERTICAL FLIP) ---
-def create_tabica_instance(doc, curve, symbol, level, force_invert_h=False, force_invert_z=False):
-    """
-    Cria a tabica e aplica inversões.
-    force_invert_h: Inverte a linha (Horizontal Flip)
-    force_invert_z: Espelha a geometria (Vertical Flip)
-    """
-    try:
-        p0 = curve.GetEndPoint(0)
-        p1 = curve.GetEndPoint(1)
-        
-        final_curve = curve
-        
-        # Inversão Horizontal (Linha)
-        if force_invert_h:
-            final_curve = Line.CreateBound(p1, p0)
-            
-        instance = doc.Create.NewFamilyInstance(final_curve, symbol, level, Structure.StructuralType.NonStructural)
-        
-        # Inversão Vertical (Mirror Z)
-        # O Revit não tem Flip Vertical nativo para genéricos.
-        # Usamos ElementTransformUtils.Mirror em torno de um plano horizontal.
-        if force_invert_z and instance:
-            doc.Regenerate()
-            
-            # Plano Horizontal passando pela linha (Z da linha)
-            # Normal do plano = Z
-            # Origem = qualquer ponto da linha (p0)
-            # Mas p0 pode ser relativo ao nível 0 se viermos de flatten_loop.
-            # O Mirror precisa ser no espaço 3D real.
-            
-            # Se a linha está em Z=0, e a instância no Nível, o plano deve ser no nível.
-            # Porém, queremos flipar "em torno de si mesma". 
-            # O eixo de espelhamento deve ser o plano XY local da instância.
-            
-            # Cria plano de espelho
-            # Plane.CreateByNormalAndOrigin(XYZ.BasisZ, p0) requer XYZ, XYZ
-            # Nota: p0 da curva flattened é Z=0. A instância está no nível.
-            
-            # Se espelharmos pelo plano Z=0, a tabica vai parar lá embaixo se o nível for alto.
-            # Precisamos espelhar e manter a altura? 
-            # O Mirror inverte a geometria mas também a posição Z se não for pelo centro.
-            
-            # ESTRATÉGIA SEGURA: Mirror e depois move de volta?
-            # Ou Mirror pelo plano que passa pelo Location Point Z da instância?
-            
-            # Vamos tentar pegar o Z real da instância (após colocação)
-            # Para LineBased, Location é LocationCurve.
-            
-            # Se espelharmos pelo plano horizontal que passa pelo nível da instância, ela fica de cabeça para baixo no mesmo nível.
-            # Plane Z = Level Elevation?
-            
-            plane_z = level.Elevation
-            mirror_plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, XYZ(0,0, plane_z))
-            
-            # Mirror cria cópia e retorna IDs
-            new_ids = ElementTransformUtils.MirrorElement(doc, instance.Id, mirror_plane)
-            
-            # Deleta original
-            doc.Delete(instance.Id)
-            
-            # Retorna nova instância
-            if new_ids:
-                return doc.GetElement(new_ids[0])
-            else:
-                return None
-
-        return instance
-    except Exception as e:
-        return None
-
-# --- CORE LOGIC: FORRO ---
+# --- CORE LOGIC ---
 def create_ceiling_geometry(room, offset_dist):
-    """Gera o CurveLoop do forro com offset negativo."""
     loops = []
-    
     opt = SpatialElementBoundaryOptions()
     opt.SpatialElementBoundaryLocation = SpatialElementBoundaryLocation.Finish
-    
     segments_list = room.GetBoundarySegments(opt)
-    
     if not segments_list: return None
-    
     for segments in segments_list:
         curves = []
-        for seg in segments:
-            curves.append(seg.GetCurve())
-            
+        for seg in segments: curves.append(seg.GetCurve())
         try:
             original_loop = flatten_loop_to_z(curves, 0.0)
             if not original_loop: continue
-            
             if abs(offset_dist) > 0.001:
                 try:
                     offset_loops = CurveLoop.CreateViaOffset(original_loop, -offset_dist, XYZ.BasisZ)
-                    
-                    if isinstance(offset_loops, CurveLoop):
-                        loops.append(offset_loops)
-                    else:
-                        for ol in offset_loops:
-                            loops.append(ol)
-                except Exception as offset_err:
-                    loops.append(original_loop)
-            else:
-                loops.append(original_loop)
-                
-        except Exception as e:
-            pass
-            
+                    if isinstance(offset_loops, CurveLoop): loops.append(offset_loops)
+                    else: 
+                        for ol in offset_loops: loops.append(ol)
+                except: loops.append(original_loop)
+            else: loops.append(original_loop)
+        except: pass
     return loops
 
 def get_tabica_curves(room, offset_dist):
-    """Retorna curvas para a tabica (com offset se necessário)."""
     tabica_curves = []
-    
     opt = SpatialElementBoundaryOptions()
     opt.SpatialElementBoundaryLocation = SpatialElementBoundaryLocation.Finish
     segments_list = room.GetBoundarySegments(opt)
-    
     if not segments_list: return []
-    
-    if abs(offset_dist) < 0.001:
-        for segments in segments_list:
-            for seg in segments:
-                elem = doc.GetElement(seg.ElementId)
-                if isinstance(elem, Wall):
-                    c = seg.GetCurve()
-                    p0 = c.GetEndPoint(0)
-                    p1 = c.GetEndPoint(1)
-                    line = Line.CreateBound(XYZ(p0.X, p0.Y, 0), XYZ(p1.X, p1.Y, 0))
-                    tabica_curves.append(line)
-        return tabica_curves
-
     for segments in segments_list:
         curves = []
-        for seg in segments:
-            curves.append(seg.GetCurve())
-            
+        for seg in segments: curves.append(seg.GetCurve())
         original_loop = flatten_loop_to_z(curves, 0.0)
         if not original_loop: continue
-        
         try:
-            offset_loops = CurveLoop.CreateViaOffset(original_loop, -offset_dist, XYZ.BasisZ)
-            
-            loops_to_process = []
-            if isinstance(offset_loops, CurveLoop):
-                loops_to_process.append(offset_loops)
-            else:
-                for ol in offset_loops: loops_to_process.append(ol)
-                
-            for ol in loops_to_process:
-                for c in ol:
-                    tabica_curves.append(c)
-        except:
-            pass
-            
+            if abs(offset_dist) > 0.001:
+                offset_loops = CurveLoop.CreateViaOffset(original_loop, -offset_dist, XYZ.BasisZ)
+            else: offset_loops = [original_loop]
+            loops_to_proc = [offset_loops] if isinstance(offset_loops, CurveLoop) else offset_loops
+            for ol in loops_to_proc:
+                for c in ol: tabica_curves.append(c)
+        except: pass
     return tabica_curves
 
+def create_tabica_instance(doc, curve, symbol, level, force_invert_h, force_invert_z):
+    try:
+        p0 = curve.GetEndPoint(0)
+        p1 = curve.GetEndPoint(1)
+        final_curve = Line.CreateBound(p1, p0) if force_invert_h else curve
+        instance = doc.Create.NewFamilyInstance(final_curve, symbol, level, Structure.StructuralType.NonStructural)
+        if force_invert_z and instance:
+            doc.Regenerate()
+            plane_z = level.Elevation
+            mirror_plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, XYZ(0,0, plane_z))
+            new_ids = ElementTransformUtils.MirrorElement(doc, instance.Id, mirror_plane)
+            doc.Delete(instance.Id)
+            if new_ids: return doc.GetElement(new_ids[0])
+        return instance
+    except: return None
+
+# --- PREP DADOS ---
+all_ceilings = sorted(FilteredElementCollector(doc).OfClass(CeilingType).ToElements(), key=lambda x: Element.Name.GetValue(x))
+all_tabicas = sorted(FilteredElementCollector(doc).OfClass(FamilySymbol).OfCategory(BuiltInCategory.OST_GenericModel).ToElements(), key=lambda x: Element.Name.GetValue(x))
+all_tabicas = [t for t in all_tabicas if t.Family.FamilyPlacementType == FamilyPlacementType.CurveBased]
+all_levels = sorted(FilteredElementCollector(doc).OfClass(Level).ToElements(), key=lambda l: l.Elevation)
+
+dict_levels = {l.Name: l for l in all_levels}
+def get_name(e): return Element.Name.GetValue(e)
+
 # --- GUI ---
-rooms = get_selected_rooms()
-if not rooms: script.exit()
-
-all_ceilings = sorted(get_ceiling_types(), key=get_name)
-all_tabicas = sorted(get_line_based_families(), key=get_name)
-
 class ForroWindow(forms.WPFWindow):
     def __init__(self):
         xaml_file = os.path.join(os.path.dirname(__file__), 'script.xaml')
         forms.WPFWindow.__init__(self, xaml_file)
         
+        self.run_script = False
+        
+        self.cb_level.ItemsSource = dict_levels.keys()
         self.cb_ceiling_type.ItemsSource = [get_name(c) for c in all_ceilings]
+        self.cb_tabica_type.ItemsSource = ["(Nenhum)"] + [get_name(t) for t in all_tabicas]
         
-        tabica_names = ["(Nenhum)"] + [get_name(t) for t in all_tabicas]
-        self.cb_tabica_type.ItemsSource = tabica_names
-        
-        # --- CARREGA CONFIGURAÇÕES ---
+        # Config Recovery
         cfg = config_manager.get_config(CMD_ID)
         
-        self.cb_ceiling_type.SelectedIndex = 0
-        self.cb_tabica_type.SelectedIndex = 0 
+        # --- Nível Smart Select ---
+        active_view = doc.ActiveView
+        active_level = getattr(active_view, "GenLevel", None)
         
-        if getattr(cfg, "last_ceiling_type", None):
-            for i, name in enumerate(self.cb_ceiling_type.ItemsSource):
-                if name == cfg.last_ceiling_type:
-                    self.cb_ceiling_type.SelectedIndex = i
-                    break
-                    
-        if getattr(cfg, "last_tabica_type", None):
-            for i, name in enumerate(tabica_names):
-                if name == cfg.last_tabica_type:
-                    self.cb_tabica_type.SelectedIndex = i
-                    break
+        target_level = None
+        if active_level and active_level.Name in dict_levels:
+            target_level = active_level.Name
+        elif getattr(cfg, "last_level", None) in dict_levels:
+            target_level = cfg.last_level
         else:
-            for i, name in enumerate(tabica_names):
-                if "ARQPWR" in name and "Tabica" in name:
-                    self.cb_tabica_type.SelectedIndex = i
-                    break
+            if dict_levels: target_level = list(dict_levels.keys())[0]
+            
+        if target_level: self.cb_level.SelectedItem = target_level
+
+        # --- Outros Defaults ---
+        self.cb_ceiling_type.SelectedIndex = 0
+        if getattr(cfg, "last_ceiling_type", None): self.cb_ceiling_type.SelectedItem = cfg.last_ceiling_type
+            
+        self.cb_tabica_type.SelectedIndex = 0 
+        if getattr(cfg, "last_tabica_type", None): self.cb_tabica_type.SelectedItem = cfg.last_tabica_type
         
         self.tb_height.Text = getattr(cfg, "last_height", "260")
         self.tb_gesso_gap.Text = getattr(cfg, "last_gesso_gap", "2.5")
         self.tb_tabica_gap.Text = getattr(cfg, "last_tabica_gap", "0")
         self.tb_tabica_z_offset.Text = getattr(cfg, "last_tabica_z_offset", "0")
-        
         self.chk_create_tabica.IsChecked = getattr(cfg, "last_create_tabica", True)
         self.chk_invert_tabica.IsChecked = getattr(cfg, "last_invert_tabica", False)
         self.chk_invert_z_tabica.IsChecked = getattr(cfg, "last_invert_z_tabica", False)
-        
-        self.run_script = False
 
     def button_create_clicked(self, sender, args):
+        self.run_script = True
         config_manager.save_config(CMD_ID, {
+            "last_level": self.cb_level.SelectedItem, # Salva o nível usado
             "last_ceiling_type": self.cb_ceiling_type.SelectedItem,
             "last_tabica_type": self.cb_tabica_type.SelectedItem,
             "last_height": self.tb_height.Text,
@@ -321,53 +214,40 @@ class ForroWindow(forms.WPFWindow):
             "last_invert_tabica": self.chk_invert_tabica.IsChecked,
             "last_invert_z_tabica": self.chk_invert_z_tabica.IsChecked
         })
-        
-        self.run_script = True
         self.Close()
 
 win = ForroWindow()
 win.ShowDialog()
 
 if not win.run_script: script.exit()
-if not win.cb_ceiling_type.SelectedItem: script.exit()
+
+rooms = get_user_selection()
+if not rooms: script.exit()
+
+# --- RECUPERA INPUTS ---
+sel_level = dict_levels[win.cb_level.SelectedItem] # Nível escolhido na UI
 
 sel_ceil_name = win.cb_ceiling_type.SelectedItem
 ceil_type = next((x for x in all_ceilings if get_name(x) == sel_ceil_name), None)
 
 sel_tab_name = win.cb_tabica_type.SelectedItem
 tab_symbol = None
-
-if sel_tab_name == "(Nenhum)":
-    do_tabica = False
-    gesso_gap_ft = 0.0 
-    tabica_gap_ft = 0.0
-    tabica_z_offset_ft = 0.0
-    do_invert_h = False
-    do_invert_z = False
-else:
+if sel_tab_name != "(Nenhum)":
     tab_symbol = next((x for x in all_tabicas if get_name(x) == sel_tab_name), None)
-    do_tabica = win.chk_create_tabica.IsChecked
-    do_invert_h = win.chk_invert_tabica.IsChecked
-    do_invert_z = win.chk_invert_z_tabica.IsChecked
-    
-    try:
-        gesso_cm = float(win.tb_gesso_gap.Text)
-        gesso_gap_ft = gesso_cm / 30.48
-        
-        tabica_gap_cm = float(win.tb_tabica_gap.Text)
-        tabica_gap_ft = tabica_gap_cm / 30.48
-        
-        z_offset_cm = float(win.tb_tabica_z_offset.Text)
-        tabica_z_offset_ft = z_offset_cm / 30.48
-    except:
-        forms.alert("Valores da tabica inválidos.", exitscript=True)
+
+do_tabica = win.chk_create_tabica.IsChecked
+do_invert_h = win.chk_invert_tabica.IsChecked
+do_invert_z = win.chk_invert_z_tabica.IsChecked
 
 try:
-    h_cm = float(win.tb_height.Text)
-    height_ft = h_cm / 30.48
+    gesso_gap_ft = float(win.tb_gesso_gap.Text) / 30.48
+    tabica_gap_ft = float(win.tb_tabica_gap.Text) / 30.48
+    tabica_z_offset_ft = float(win.tb_tabica_z_offset.Text) / 30.48
+    height_ft = float(win.tb_height.Text) / 30.48
 except:
-    forms.alert("Altura inválida.", exitscript=True)
+    forms.alert("Valores inválidos.", exitscript=True)
 
+# --- EXECUÇÃO ---
 t = Transaction(doc, "Criar Forro e Tabica")
 t.Start()
 
@@ -380,7 +260,8 @@ try:
         doc.Regenerate()
 
     for room in rooms:
-        level_id = room.LevelId
+        # USA O NÍVEL SELECIONADO NA UI, NÃO O DO QUARTO
+        level_id = sel_level.Id
         
         loops = create_ceiling_geometry(room, gesso_gap_ft)
         
@@ -388,45 +269,29 @@ try:
             try:
                 valid_loops = []
                 for l in loops:
-                    if isinstance(l, CurveLoop):
-                        if not l.IsOpen():
-                            valid_loops.append(l)
+                    if isinstance(l, CurveLoop) and not l.IsOpen():
+                        valid_loops.append(l)
                 
                 if valid_loops:
                     c = Ceiling.Create(doc, valid_loops, ceil_type.Id, level_id)
                     p_off = c.get_Parameter(BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM)
                     if p_off: p_off.Set(height_ft)
                     count_forros += 1
-
-            except Exception as ce:
-                pass
+            except: pass
 
         if do_tabica and tab_symbol:
-            # Não precisamos mais do centro da sala para a lógica simplificada
-            curves_to_draw = get_tabica_curves(room, tabica_gap_ft)
-            
-            for curve in curves_to_draw:
-                # Passa os inverters
-                inst = create_tabica_instance(
-                    doc, curve, tab_symbol, room.Level, 
-                    force_invert_h=do_invert_h,
-                    force_invert_z=do_invert_z
-                )
-                
+            curves = get_tabica_curves(room, tabica_gap_ft)
+            for c in curves:
+                # CRIA TABICA NO NÍVEL SELECIONADO
+                inst = create_tabica_instance(doc, c, tab_symbol, sel_level, do_invert_h, do_invert_z)
                 if inst:
-                  
-                    p_elev = inst.get_Parameter(BuiltInParameter.INSTANCE_ELEVATION_PARAM)
-                    if not p_elev or p_elev.IsReadOnly:
-                        p_elev = inst.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM)
-                    
                     final_z = height_ft + tabica_z_offset_ft
-                    
-                    if p_elev: 
-                        p_elev.Set(final_z)
+                    p_elev = inst.get_Parameter(BuiltInParameter.INSTANCE_ELEVATION_PARAM) or inst.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM)
+                    if p_elev: p_elev.Set(final_z)
                     else:
-                        p_custom = inst.LookupParameter("Elevação") or inst.LookupParameter("Offset") or inst.LookupParameter("Altura")
-                        if p_custom: p_custom.Set(final_z)
-                    
+                        for n in ["Elevação", "Offset", "Altura"]:
+                            p = inst.LookupParameter(n)
+                            if p: p.Set(final_z); break
                     count_tabicas += 1
 
     t.Commit()
@@ -436,4 +301,4 @@ try:
 
 except Exception as e:
     t.RollBack()
-    forms.alert("Erro Crítico: {}".format(e))
+    forms.alert("Erro: {}".format(e))
