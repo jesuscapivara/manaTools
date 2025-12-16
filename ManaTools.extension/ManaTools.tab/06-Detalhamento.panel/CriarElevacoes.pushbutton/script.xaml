@@ -1,117 +1,37 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Maná Elevações V5.1" Height="650" Width="400" 
+        Title="Maná Gerador V6" Height="550" Width="350" 
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize" Background="#F0F0F0">
-    
-    <Grid Margin="10">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+    <StackPanel Margin="15">
+        <TextBlock Text="GERAR ELEVAÇÕES" FontWeight="Bold" FontSize="16" Foreground="#2C3E50" HorizontalAlignment="Center" Margin="0,0,0,15"/>
+        
+        <GroupBox Header="Direções" Padding="5" Margin="0,0,0,10">
+            <Grid HorizontalAlignment="Center">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="40"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="40"/><RowDefinition Height="40"/><RowDefinition Height="40"/></Grid.RowDefinitions>
+                <ToggleButton Name="tg_n" Grid.Row="0" Grid.Column="1" Content="N" FontWeight="Bold" IsChecked="True"/>
+                <ToggleButton Name="tg_o" Grid.Row="1" Grid.Column="0" Content="O" FontWeight="Bold" IsChecked="True"/>
+                <ToggleButton Name="tg_l" Grid.Row="1" Grid.Column="2" Content="L" FontWeight="Bold" IsChecked="True"/>
+                <ToggleButton Name="tg_s" Grid.Row="2" Grid.Column="1" Content="S" FontWeight="Bold" IsChecked="True"/>
+            </Grid>
+        </GroupBox>
 
-        <TextBlock Grid.Row="0" Text="GERADOR DE ELEVAÇÕES" FontWeight="Bold" FontSize="16" Foreground="#2C3E50"
-                   HorizontalAlignment="Center" Margin="0,10,0,10"/>
+        <Label Content="Template de Vista:" FontWeight="SemiBold"/>
+        <ComboBox Name="cb_view_templates" Height="25" Margin="0,0,0,10"/>
 
-        <TabControl Grid.Row="1" Background="White" BorderBrush="#BDC3C7">
-            
-            <TabItem Header="  Geral  " FontWeight="SemiBold">
-                <StackPanel Margin="15">
-                    <Label Content="Seleção de Vistas:" FontWeight="SemiBold" HorizontalAlignment="Center"/>
-                    
-                    <Grid Width="160" Height="160" HorizontalAlignment="Center" Margin="0,0,0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="50"/> <ColumnDefinition Width="60"/> <ColumnDefinition Width="50"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="50"/> <RowDefinition Height="60"/> <RowDefinition Height="50"/>
-                        </Grid.RowDefinitions>
-                        
-                        <ToggleButton Name="tg_north" Grid.Column="1" Grid.Row="0" Content="▲ N" IsChecked="True" FontWeight="Bold" Cursor="Hand"/>
-                        <ToggleButton Name="tg_west" Grid.Column="0" Grid.Row="1" Content="◄ O" IsChecked="True" FontWeight="Bold" Cursor="Hand"/>
-                        <Border Grid.Column="1" Grid.Row="1" Background="#BDC3C7" CornerRadius="2">
-                            <TextBlock Text="ROOM" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="White" FontSize="10" FontWeight="Bold"/>
-                        </Border>
-                        <ToggleButton Name="tg_east" Grid.Column="2" Grid.Row="1" Content="L ►" IsChecked="True" FontWeight="Bold" Cursor="Hand"/>
-                        <ToggleButton Name="tg_south" Grid.Column="1" Grid.Row="2" Content="▼ S" IsChecked="True" FontWeight="Bold" Cursor="Hand"/>
-                    </Grid>
+        <Label Content="Offsets (cm):" FontWeight="SemiBold"/>
+        <Grid Margin="0,0,0,5">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0"><Label Content="Topo:" FontSize="10"/><TextBox Name="tb_top" Height="25"/></StackPanel>
+            <StackPanel Grid.Column="2"><Label Content="Base:" FontSize="10"/><TextBox Name="tb_bot" Height="25"/></StackPanel>
+        </Grid>
+        
+        <CheckBox Name="chk_wall" Content="Incluir Espessura Parede" IsChecked="True" Margin="0,5"/>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
+            <Label Content="Extra Lateral (cm):" FontSize="10" VerticalAlignment="Center"/>
+            <TextBox Name="tb_side" Width="50" Height="25" Margin="5,0,0,0"/>
+        </StackPanel>
 
-                    <Label Content="View Template:" FontWeight="SemiBold"/>
-                    <ComboBox Name="cb_view_templates" Margin="0,0,0,15" Height="25"/>
-                    
-                    <Label Content="Offsets (cm):" FontWeight="SemiBold"/>
-                    <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/> <ColumnDefinition Width="10"/> <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
-                            <Label Content="Topo:" FontSize="10"/>
-                            <TextBox Name="tb_offset_top" Text="10" Height="25" VerticalContentAlignment="Center"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <Label Content="Base:" FontSize="10"/>
-                            <TextBox Name="tb_offset_bottom" Text="10" Height="25" VerticalContentAlignment="Center"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <CheckBox Name="chk_auto_wall" Content="Auto-Crop Espessura Parede" IsChecked="True" Margin="0,5,0,5"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Label Content="Extra Lateral (cm):" FontSize="10" VerticalAlignment="Center"/>
-                        <TextBox Name="tb_offset_side" Text="0" Width="60" Height="25" Margin="5,0,0,0" VerticalContentAlignment="Center"/>
-                    </StackPanel>
-                </StackPanel>
-            </TabItem>
-
-            <TabItem Header="  Anotação  " FontWeight="SemiBold">
-                <StackPanel Margin="15">
-                    <TextBlock Text="Configuração de Detalhamento" Foreground="#7F8C8D" Margin="0,0,0,15"/>
-
-                    <GroupBox Header="Tags de Ambiente" Margin="0,0,0,10" Padding="5">
-                        <StackPanel>
-                            <CheckBox Name="chk_tag_room" Content="Criar Tag de Ambiente" IsChecked="True" FontWeight="Bold" Margin="0,0,0,5"/>
-                            <Label Content="Estilo da Tag:" FontSize="10"/>
-                            <ComboBox Name="cb_room_tag_types" Height="25"/>
-                        </StackPanel>
-                    </GroupBox>
-
-                    <GroupBox Header="Portas e Janelas" Margin="0,0,0,10" Padding="5">
-                        <StackPanel>
-                            <CheckBox Name="chk_tag_openings" Content="Identificar Esquadrias" IsChecked="True" FontWeight="Bold" Margin="0,0,0,5"/>
-                            
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="10"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                
-                                <StackPanel Grid.Column="0">
-                                    <Label Content="Tag Porta:" FontSize="10"/>
-                                    <ComboBox Name="cb_door_tag" Height="25"/>
-                                </StackPanel>
-                                
-                                <StackPanel Grid.Column="2">
-                                    <Label Content="Tag Janela:" FontSize="10"/>
-                                    <ComboBox Name="cb_window_tag" Height="25"/>
-                                </StackPanel>
-                            </Grid>
-                        </StackPanel>
-                    </GroupBox>
-
-                    <GroupBox Header="Dimensionamento" Padding="5">
-                        <StackPanel>
-                            <CheckBox Name="chk_dims" Content="Criar Cota Automática (Largura)" IsChecked="True" FontWeight="Bold" Margin="0,0,0,5"/>
-                            <Label Content="Estilo de Cota:" FontSize="10"/>
-                            <ComboBox Name="cb_dim_styles" Height="25" Margin="0,0,0,5"/>
-                        </StackPanel>
-                    </GroupBox>
-
-                </StackPanel>
-            </TabItem>
-        </TabControl>
-
-        <Button Name="btn_create" Grid.Row="2" Content="GERAR ELEVAÇÕES" Height="45" Margin="0,15,0,0"
-                FontWeight="Bold" FontSize="14" Background="#2980B9" Foreground="White" 
-                BorderThickness="0" Cursor="Hand" Click="button_create_clicked"/>
-    </Grid>
+        <Button Content="CRIAR VISTAS" Height="40" Background="#2980B9" Foreground="White" FontWeight="Bold" Click="btn_ok_click"/>
+    </StackPanel>
 </Window>
